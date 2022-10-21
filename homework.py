@@ -138,17 +138,12 @@ def main():
             elif status == 'Нет взятых в проверку работ':
                 send_message(bot, status)
                 status = ''
-            else:
-                logging.debug('Нет новых статусов')
         except exceptions.ApiAnswerError:
             logging.error('Ошибка доступа для endpoint')
             send_message(bot, 'Ошибка доступа для endpoint')
-        except exceptions.MyResponseError:
+        except exceptions.MyResponseError or TypeError:
             logging.error('Ошибка проверки полученного ответа от API.')
             send_message(bot, 'Ошибка проверки полученного ответа от API.')
-        except TypeError:
-            logging.error('Ответ пришел не в виде словаря.')
-            send_message(bot, 'Ответ пришел не в виде словаря.')
         except exceptions.StatusError:
             logging.error('Ошибка получения статуса работы.')
             send_message(
@@ -156,6 +151,8 @@ def main():
             )
         except exceptions.SendMessageError:
             logging.error('Ошибка отправки сообщения в Telegram.')
+        else:
+            logging.debug('Нет новых статусов')
         finally:
             time.sleep(RETRY_TIME)
 
