@@ -14,6 +14,14 @@ class ApiAnswerError(Exception):
         self.txt = text
 
 
+class ApiNoAnswerError(Exception):
+    """Класс-ошибка нет ответа API."""
+
+    def __init__(self, text):
+        """Custom error text."""
+        self.txt = text
+
+
 class MyResponseError(Exception):
     """Класс-ошибка ответа от API."""
 

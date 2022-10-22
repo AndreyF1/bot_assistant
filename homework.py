@@ -5,6 +5,7 @@ import time
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
+from http import HTTPStatus
 
 import exceptions
 
@@ -56,62 +57,61 @@ def get_api_answer(current_timestamp):
     }
     try:
         response = requests.get(**requests_params)
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             raise exceptions.ApiAnswerError(
-                'Ответ API отличный от 200.'
+                f'Неудачный ответ API. Запрос к {ENDPOINT}, ответ - {response}'
             )
-    except Exception as error:
-        raise exceptions.ApiAnswerError(
-            f'Нет ответа от API: {error}'
-        )
-    else:
-        print(response.json())
         return response.json()
+    except Exception as er:
+        raise exceptions.ApiNoAnswerError(
+            f'Ошибка ответа API. {er}'
+        )
 
 
 def check_response(response):
     """Проверяем ответ API."""
     logging.info('Проверяем ответ от API')
-    if isinstance(response, dict):
-        try:
-            response['homeworks']
-        except Exception as error:
-            raise exceptions.MyResponseError(
-                f'Нет ключа homeworks: {error}'
-            )
-        if isinstance(response['homeworks'], list):
-            return response['homeworks']
-        else:
-            raise exceptions.MyResponseError(
-                'По ключу homeworks возвращается не список.'
-            )
-    else:
+    if not isinstance(response, dict):
         raise TypeError(
-            'Ответ пришел не в виде словаря.'
+            f'Ответ пришел не в виде словаря. Type: {type(response)}'
         )
+    if 'homeworks' not in response:
+        raise exceptions.MyResponseError(
+            f'Нет ключа homeworks: {response.keys()}'
+        )
+    response_list = response['homeworks']
+    if not isinstance(response_list, list):
+        raise exceptions.MyResponseError(
+            f'По ключу homeworks возвращается не список. '
+            f'Type: {type(response_list)}'
+        )
+    return response_list
 
 
 def parse_status(homework):
     """Получаем статус работы для передачи сообщения."""
     logging.info('Пробуем получить ответ по ключу для отправки сообщения')
-    try:
-        homework.get('homework_name')
-        homework.get('status')
-    except Exception as error:
-        raise exceptions.StatusError(
-            f'Ключ homework_name или status не найден: {error}'
+    if not isinstance(homework, dict):
+        raise TypeError(
+            f'Ответ пришел не в виде словаря. Type: {type(homework)}'
         )
-    else:
-        homework_name = homework['homework_name']
-        homework_status = homework['status']
-    try:
-        verdict = HOMEWORK_STATUSES[homework_status]
-    except Exception as error:
-        raise exceptions.StatusError(
-            f'Нет документированного статуса: {error}'
+    if 'homework_name' not in homework:
+        raise KeyError(
+            f'Ключ homework_name не найден: {homework}'
         )
-    else:
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    if 'status' not in homework:
+        raise KeyError(
+            f'Ключ status не найден: {homework}'
+        )
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
+    if homework_status not in HOMEWORK_STATUSES:
+        raise exceptions.StatusError(
+            f'Нет документированного статуса: {homework_status}. '
+            f'{HOMEWORK_STATUSES.keys()}'
+        )
+    verdict = HOMEWORK_STATUSES[homework_status]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
@@ -123,7 +123,10 @@ def check_tokens():
 def main():
     """Основная логика работы бота."""
     if check_tokens() is False:
-        raise SystemExit('Ошибка в переменных окружения.')
+        raise SystemExit(
+            'Ошибка в одной или нескольких переменных окружения: '
+            'PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID'
+        )
     homework = []
     status = 'Нет взятых в проверку работ'
     while True:
@@ -138,21 +141,22 @@ def main():
             elif status == 'Нет взятых в проверку работ':
                 send_message(bot, status)
                 status = ''
-        except exceptions.ApiAnswerError:
-            logging.error('Ошибка доступа для endpoint')
-            send_message(bot, 'Ошибка доступа для endpoint')
-        except exceptions.MyResponseError or TypeError:
-            logging.error('Ошибка проверки полученного ответа от API.')
+        except exceptions.ApiNoAnswerError as api_error:
+            logging.error(api_error)
+            send_message(bot, 'Ошибка доступа API.')
+        except (exceptions.MyResponseError or TypeError) as response_error:
+            logging.error(response_error)
             send_message(bot, 'Ошибка проверки полученного ответа от API.')
-        except exceptions.StatusError:
-            logging.error('Ошибка получения статуса работы.')
+        except (exceptions.StatusError or TypeError
+                or KeyError) as status_error:
+            logging.error(status_error)
             send_message(
                 bot, 'Ошибка проверки полученного ответа от API.'
             )
-        except exceptions.SendMessageError:
-            logging.error('Ошибка отправки сообщения в Telegram.')
+        except exceptions.SendMessageError as message_error:
+            logging.error(message_error)
         else:
-            logging.debug('Нет новых статусов')
+            logging.info('Все ок!')
         finally:
             time.sleep(RETRY_TIME)
 
