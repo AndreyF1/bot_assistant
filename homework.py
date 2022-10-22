@@ -57,15 +57,16 @@ def get_api_answer(current_timestamp):
     }
     try:
         response = requests.get(**requests_params)
+    except Exception:
+        raise exceptions.ApiNoAnswerError(
+            f'Ошибка ответа API. Возможно проблема с {ENDPOINT}'
+        )
+    else:
         if response.status_code != HTTPStatus.OK:
             raise exceptions.ApiAnswerError(
                 f'Неудачный ответ API. Запрос к {ENDPOINT}, ответ - {response}'
             )
         return response.json()
-    except Exception as er:
-        raise exceptions.ApiNoAnswerError(
-            f'Ошибка ответа API. {er}'
-        )
 
 
 def check_response(response):
@@ -127,37 +128,31 @@ def main():
             'Ошибка в одной или нескольких переменных окружения: '
             'PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID'
         )
-    homework = []
-    status = 'Нет взятых в проверку работ'
+    message = ''
     while True:
         bot = Bot(token=TELEGRAM_TOKEN)
         current_timestamp = int(time.time())
         try:
             response = get_api_answer(current_timestamp)
-            if check_response(response) != homework:
-                homework = check_response(response)
+            homework = check_response(response)
+            if len(homework) != 0:
                 status = parse_status(homework[0])
+            else:
+                status = 'Нет взятых в проверку работ.'
+            if status != message:
                 send_message(bot, status)
-            elif status == 'Нет взятых в проверку работ':
-                send_message(bot, status)
-                status = ''
-        except exceptions.ApiNoAnswerError as api_error:
-            logging.error(api_error)
-            send_message(bot, 'Ошибка доступа API.')
-        except (exceptions.MyResponseError or TypeError) as response_error:
-            logging.error(response_error)
-            send_message(bot, 'Ошибка проверки полученного ответа от API.')
-        except (exceptions.StatusError or TypeError
-                or KeyError) as status_error:
-            logging.error(status_error)
-            send_message(
-                bot, 'Ошибка проверки полученного ответа от API.'
-            )
-        except exceptions.SendMessageError as message_error:
-            logging.error(message_error)
+                message = status
+        except (exceptions.ApiAnswerError, exceptions.ApiNoAnswerError,
+                exceptions.MyResponseError, TypeError, exceptions.StatusError,
+                exceptions.SendMessageError) as error:
+            logging.error(error)
+            status = error.txt
         else:
             logging.info('Все ок!')
         finally:
+            if status != message:
+                send_message(bot, status)
+                message = status
             time.sleep(RETRY_TIME)
 
 
